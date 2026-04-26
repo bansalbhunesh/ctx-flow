@@ -4,23 +4,46 @@ Intent-aware context injection plugin for Claude Code. Reduces token usage by 60
 
 ## How it works
 
-```
-User message
-    │
-    ▼
-Intent router  ──── keyword match (free)
-    │               └─ Haiku fallback (only on miss)
-    ▼
-Load relevant domain files  +  core files (goals, constraints, decisions)
-    │
-    ▼
-If session > 4000 tokens → compress history into structured summary
-    │
-    ▼
-Claude gets:  [core context] + [domain files] + [summary or last N turns]
-    │
-    ▼
-After response → extract new facts → auto-update domain files
+```mermaid
+flowchart TD
+    A([User Message]) --> B[ctx_inject]
+
+    subgraph ROUTER["Intent Router"]
+        B --> C{Keyword match?}
+        C -->|Hit| D[Domain tags]
+        C -->|Miss| E[Claude Haiku\nclassifier]
+        E --> D
+    end
+
+    subgraph LOADER["Context Loader"]
+        D --> F[Load domain files\nauth · api · ui · database]
+        F --> G[Always load\ngoals · constraints · decisions]
+    end
+
+    subgraph MEMORY["Session Memory"]
+        G --> H{Tokens > 4000?}
+        H -->|No| I[Last N raw turns]
+        H -->|Yes| J[Structured summary\nHaiku compression]
+        I --> K
+        J --> K
+    end
+
+    K[Assembled Context] --> L[[Claude\nMain Model]]
+    L --> M([Response])
+
+    M --> N[ctx_update]
+
+    subgraph UPDATER["File Updater"]
+        N --> O[Extract new facts\nHaiku]
+        O --> P[(Domain .md files\nauto-updated)]
+        P --> F
+    end
+
+    style ROUTER fill:#1e293b,stroke:#3b82f6,color:#e2e8f0
+    style LOADER fill:#1e293b,stroke:#10b981,color:#e2e8f0
+    style MEMORY fill:#1e293b,stroke:#f59e0b,color:#e2e8f0
+    style UPDATER fill:#1e293b,stroke:#8b5cf6,color:#e2e8f0
+    style L fill:#0f172a,stroke:#6366f1,color:#e2e8f0
 ```
 
 ## Token savings
