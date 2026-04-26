@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ctx-flow": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
