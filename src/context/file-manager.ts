@@ -1,16 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { readFile, writeFile } from "fs/promises";
-import { existsSync, mkdirSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONTEXT_DIR = join(__dirname, "../../context");
-const DOMAINS_DIR = join(CONTEXT_DIR, "domains");
-
-const HAIKU_MODEL = "claude-haiku-4-5-20251001";
-
-// ── File I/O ──────────────────────────────────────────────────────────────────
+import { readFile, writeFile, mkdir } from "fs/promises";
+import { existsSync } from "fs";
+import { join } from "path";
+import { loadConfig } from "../config.js";
 
 export async function readContextFile(filePath: string): Promise<string> {
   if (!existsSync(filePath)) return "";
@@ -18,19 +10,21 @@ export async function readContextFile(filePath: string): Promise<string> {
 }
 
 export async function writeContextFile(filePath: string, content: string): Promise<void> {
-  if (!existsSync(DOMAINS_DIR)) mkdirSync(DOMAINS_DIR, { recursive: true });
+  const cfg = await loadConfig();
+  const domainsDir = join(cfg.contextDir, "domains");
+  if (!existsSync(domainsDir)) await mkdir(domainsDir, { recursive: true });
   await writeFile(filePath, content, "utf-8");
 }
 
-function domainPath(domain: string): string {
-  return join(DOMAINS_DIR, `${domain}.md`);
+async function domainPath(domain: string): Promise<string> {
+  const cfg = await loadConfig();
+  return join(cfg.contextDir, "domains", `${domain}.md`);
 }
 
-function corePath(name: string): string {
-  return join(CONTEXT_DIR, `${name}.md`);
+async function corePath(name: string): Promise<string> {
+  const cfg = await loadConfig();
+  return join(cfg.contextDir, `${name}.md`);
 }
-
-// ── Append helpers ────────────────────────────────────────────────────────────
 
 async function appendLines(filePath: string, lines: string[]): Promise<void> {
   if (lines.length === 0) return;
@@ -38,8 +32,6 @@ async function appendLines(filePath: string, lines: string[]): Promise<void> {
   const newContent = existing.trimEnd() + "\n" + lines.map((l) => `- ${l}`).join("\n") + "\n";
   await writeContextFile(filePath, newContent);
 }
-
-// ── Extraction prompt ─────────────────────────────────────────────────────────
 
 const EXTRACT_SYSTEM = `You are a fact extractor for a context memory system.
 Given a conversation turn, extract NEW facts that should be saved to context files.
@@ -81,8 +73,6 @@ Rules:
 - Return {} for any section with nothing new`;
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
 export interface UpdateResult {
   domainsUpdated: string[];
   factsAdded: number;
@@ -102,18 +92,19 @@ export async function extractAndUpdate(
     return { domainsUpdated: [], factsAdded: 0, skipped: true };
   }
 
-  // Load existing content so Haiku can avoid duplicates
+  const cfg = await loadConfig();
+
   const existingContent: Record<string, string> = {};
   for (const domain of domains) {
-    existingContent[domain] = await readContextFile(domainPath(domain));
+    existingContent[domain] = await readContextFile(await domainPath(domain));
   }
-  existingContent["decisions"] = await readContextFile(corePath("decisions"));
-  existingContent["goals"] = await readContextFile(corePath("goals"));
-  existingContent["constraints"] = await readContextFile(corePath("constraints"));
+  existingContent["decisions"] = await readContextFile(await corePath("decisions"));
+  existingContent["goals"] = await readContextFile(await corePath("goals"));
+  existingContent["constraints"] = await readContextFile(await corePath("constraints"));
 
   const client = new Anthropic();
   const res = await client.messages.create({
-    model: HAIKU_MODEL,
+    model: cfg.haikuModel,
     max_tokens: 512,
     system: EXTRACT_SYSTEM,
     messages: [
@@ -142,27 +133,25 @@ export async function extractAndUpdate(
   const domainsUpdated: string[] = [];
   let factsAdded = 0;
 
-  // Write domain updates
   for (const [domain, facts] of Object.entries(parsed.domain_updates ?? {})) {
     if (!Array.isArray(facts) || facts.length === 0) continue;
-    await appendLines(domainPath(domain), facts);
+    await appendLines(await domainPath(domain), facts);
     domainsUpdated.push(domain);
     factsAdded += facts.length;
   }
 
-  // Write core file updates
   if (parsed.decisions?.length) {
-    await appendLines(corePath("decisions"), parsed.decisions);
+    await appendLines(await corePath("decisions"), parsed.decisions);
     domainsUpdated.push("decisions");
     factsAdded += parsed.decisions.length;
   }
   if (parsed.goals?.length) {
-    await appendLines(corePath("goals"), parsed.goals);
+    await appendLines(await corePath("goals"), parsed.goals);
     domainsUpdated.push("goals");
     factsAdded += parsed.goals.length;
   }
   if (parsed.constraints?.length) {
-    await appendLines(corePath("constraints"), parsed.constraints);
+    await appendLines(await corePath("constraints"), parsed.constraints);
     domainsUpdated.push("constraints");
     factsAdded += parsed.constraints.length;
   }
@@ -172,8 +161,7 @@ export async function extractAndUpdate(
 
 /**
  * Directly write a fact to a domain file (no API call).
- * Use when you already know the domain and fact.
  */
 export async function writeFact(domain: string, fact: string): Promise<void> {
-  await appendLines(domainPath(domain), [fact]);
+  await appendLines(await domainPath(domain), [fact]);
 }

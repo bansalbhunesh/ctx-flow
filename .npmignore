@@ -1,0 +1,16 @@
+.github/
+.claude/
+tests/
+src/
+node_modules/
+coverage/
+*.log
+.env
+.DS_Store
+tsconfig.json
+tsconfig.test.json
+vitest.config.ts
+.prettierrc
+ctx-flow.config.example.json
+ctx-flow.config.json
+context/.session.json

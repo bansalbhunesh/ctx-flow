@@ -2,3 +2,8 @@ node_modules/
 dist/
 context/.session.json
 .env
+coverage/
+*.log
+.DS_Store
+ctx-flow.config.json
+!ctx-flow.config.example.json

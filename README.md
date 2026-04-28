@@ -58,6 +58,14 @@ flowchart TD
 
 ### 1. Install
 
+From npm (recommended):
+
+```bash
+npm install -g ctx-flow
+```
+
+Or from source:
+
 ```bash
 git clone https://github.com/bansalbhunesh/ctx-flow.git
 cd ctx-flow
@@ -65,7 +73,16 @@ npm install
 npm run build
 ```
 
-### 2. Set your API key
+### 2. Scaffold the context directory in your project
+
+```bash
+cd /path/to/your/project
+ctx-flow init
+```
+
+This creates `context/` with starter `goals.md`, `constraints.md`, `decisions.md`, and `domains/{auth,api,ui,database}.md` files.
+
+### 3. Set your API key
 
 ```bash
 export ANTHROPIC_API_KEY=your_key_here
@@ -73,7 +90,7 @@ export ANTHROPIC_API_KEY=your_key_here
 
 > Without a key the plugin still works — it uses keyword routing and a minimal fallback summary. Haiku-powered extraction and summarization require the key.
 
-### 3. Register with Claude Code
+### 4. Register with Claude Code
 
 Add to your project's `.claude/settings.json`:
 
@@ -81,8 +98,21 @@ Add to your project's `.claude/settings.json`:
 {
   "mcpServers": {
     "ctx-flow": {
+      "command": "ctx-flow",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+If you installed from source, point at the binary instead:
+
+```json
+{
+  "mcpServers": {
+    "ctx-flow": {
       "command": "node",
-      "args": ["dist/index.js"],
+      "args": ["bin/ctx-flow.js", "mcp"],
       "cwd": "/absolute/path/to/ctx-flow"
     }
   }
@@ -90,6 +120,41 @@ Add to your project's `.claude/settings.json`:
 ```
 
 Then restart Claude Code.
+
+## CLI
+
+```
+ctx-flow [command]
+
+Commands:
+  mcp                  Start the MCP server (default)
+  init [dir]           Scaffold context/ in the given directory (default: cwd)
+  --version, -v        Print the installed version
+  --help, -h           Print help
+```
+
+## Configuration
+
+Drop a `ctx-flow.config.json` next to your `context/` directory to override defaults:
+
+```json
+{
+  "contextDir": "./context",
+  "tokenThreshold": 4000,
+  "haikuModel": "claude-haiku-4-5-20251001",
+  "keywordMap": {
+    "auth": ["login", "jwt", "session"],
+    "billing": ["invoice", "stripe", "payment"]
+  }
+}
+```
+
+All fields are optional. `keywordMap` is merged with the built-in defaults — list a domain there to extend it.
+
+Environment overrides:
+- `CTX_FLOW_CONFIG` — path to a config file (default: `./ctx-flow.config.json`)
+- `CTX_FLOW_CONTEXT_DIR` — overrides `contextDir`
+- `ANTHROPIC_API_KEY` — required for Haiku-powered features
 
 ## Context files
 

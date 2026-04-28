@@ -1,0 +1,12 @@
+{
+  "contextDir": "./context",
+  "tokenThreshold": 4000,
+  "haikuModel": "claude-haiku-4-5-20251001",
+  "keywordMap": {
+    "auth": ["login", "logout", "token", "jwt", "session", "password", "oauth"],
+    "api": ["endpoint", "route", "request", "response", "rest", "http"],
+    "ui": ["component", "button", "form", "modal", "layout", "css"],
+    "database": ["query", "table", "schema", "migration", "sql", "postgres"],
+    "testing": ["test", "spec", "mock", "assert", "vitest", "coverage"]
+  }
+}

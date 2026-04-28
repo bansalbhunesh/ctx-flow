@@ -1,8 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { StructuredSummary, Turn } from "../types.js";
-
-const TOKEN_THRESHOLD = 4000;
-const HAIKU_MODEL = "claude-haiku-4-5-20251001";
+import { loadConfig } from "../config.js";
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -12,17 +10,13 @@ function turnsToTokens(turns: Turn[]): number {
   return turns.reduce((sum, t) => sum + estimateTokens(t.content), 0);
 }
 
-// ── Summarizer prompt ─────────────────────────────────────────────────────────
-
 const SYSTEM_PROMPT = `You are a conversation memory compressor.
 Extract structured information from a conversation and return ONLY valid JSON.
 Be concise — each list item should be one sentence max.
 Only include information explicitly stated. Never invent facts.`;
 
 function buildUserPrompt(turns: Turn[], existing: StructuredSummary | null): string {
-  const history = turns
-    .map((t) => `${t.role.toUpperCase()}: ${t.content}`)
-    .join("\n");
+  const history = turns.map((t) => `${t.role.toUpperCase()}: ${t.content}`).join("\n");
 
   const existingBlock = existing
     ? `\nExisting summary to UPDATE (merge new info in, don't repeat):\n${JSON.stringify(existing, null, 2)}\n`
@@ -42,8 +36,6 @@ Return JSON with this exact shape:
 }`;
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
 export interface CompressResult {
   summary: StructuredSummary;
   tokensBefore: number;
@@ -62,14 +54,14 @@ export async function compress(
   turnNumber: number,
   force = false
 ): Promise<CompressResult | null> {
+  const cfg = await loadConfig();
   const tokensBefore = turnsToTokens(turns);
 
-  if (!force && tokensBefore < TOKEN_THRESHOLD) {
-    return null; // not needed yet
+  if (!force && tokensBefore < cfg.tokenThreshold) {
+    return null;
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    // No key — produce a minimal fallback summary without an API call
     const fallback: StructuredSummary = {
       goals: existing?.goals ?? [],
       facts: [`${turns.length} turns compressed at turn ${turnNumber}`],
@@ -89,22 +81,18 @@ export async function compress(
   const client = new Anthropic();
 
   const response = await client.messages.create({
-    model: HAIKU_MODEL,
+    model: cfg.haikuModel,
     max_tokens: 512,
     system: SYSTEM_PROMPT,
-    messages: [
-      { role: "user", content: buildUserPrompt(turns, existing) },
-    ],
+    messages: [{ role: "user", content: buildUserPrompt(turns, existing) }],
   });
 
-  const raw =
-    response.content[0].type === "text" ? response.content[0].text.trim() : "{}";
+  const raw = response.content[0].type === "text" ? response.content[0].text.trim() : "{}";
 
   let parsed: Omit<StructuredSummary, "compressedAt">;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    // Haiku returned malformed JSON — preserve existing, add a note
     parsed = {
       goals: existing?.goals ?? [],
       facts: [...(existing?.facts ?? []), `Turn ${turnNumber}: parse error on summary`],
@@ -139,10 +127,11 @@ export async function compress(
 export function renderSummary(summary: StructuredSummary): string {
   const sections: string[] = [`_Conversation compressed at turn ${summary.compressedAt}_`];
 
-  if (summary.goals.length)        sections.push(`**Goals:** ${summary.goals.join(" | ")}`);
-  if (summary.facts.length)        sections.push(`**Facts:** ${summary.facts.join(" | ")}`);
-  if (summary.decisions.length)    sections.push(`**Decisions:** ${summary.decisions.join(" | ")}`);
-  if (summary.constraints.length)  sections.push(`**Constraints:** ${summary.constraints.join(" | ")}`);
+  if (summary.goals.length) sections.push(`**Goals:** ${summary.goals.join(" | ")}`);
+  if (summary.facts.length) sections.push(`**Facts:** ${summary.facts.join(" | ")}`);
+  if (summary.decisions.length) sections.push(`**Decisions:** ${summary.decisions.join(" | ")}`);
+  if (summary.constraints.length)
+    sections.push(`**Constraints:** ${summary.constraints.join(" | ")}`);
   if (summary.openQuestions.length) sections.push(`**Open:** ${summary.openQuestions.join(" | ")}`);
 
   return sections.join("\n");
