@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-04-28
+
+### Fixed
+- `node dist/cli.js` is no longer a silent no-op when invoked directly. The
+  CLI now auto-runs when its module URL matches `process.argv[1]` (the bin
+  shim continues to import and call `run()` itself).
+- Keyword router now uses word-boundary matching, so `sql` no longer matches
+  `MySQL`, `post` no longer matches `blog post`, and `get` no longer matches
+  every English use of "get".
+- Corrupt or unreadable `.session.json` no longer crashes the server; the
+  session is logged once on stderr and reset.
+- `appendLines` now deduplicates against existing bullets before writing,
+  preventing the same fact from being appended twice on retry.
+
+### Changed
+- Default `api` keywords tightened: bare HTTP verbs (`get`, `post`, `delete`,
+  `patch`) replaced with their `* request` forms; added `graphql`, `webhook`,
+  `https`. Configure your own list via `ctx-flow.config.json` if you need the
+  old behavior back.
+- `startServer()` now emits a one-line stderr warning when the configured
+  `contextDir` does not exist or has no `goals.md`/`domains/` — the previous
+  behavior silently returned empty context.
+- Added a `prepare` script so installs from a git URL build automatically.
+
+### Added
+- Direct unit tests for `handleInject`, `handleUpdate`, `handleReset`, and
+  the corrupt-session recovery path.
+- Tests for `loadConfig` env-var precedence and caching.
+- Regression tests for word-boundary keyword matching and `appendLines` dedup.
+
 ## [1.1.0] - 2026-04-28
 
 ### Added

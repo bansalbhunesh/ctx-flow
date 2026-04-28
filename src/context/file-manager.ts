@@ -29,7 +29,16 @@ async function corePath(name: string): Promise<string> {
 async function appendLines(filePath: string, lines: string[]): Promise<void> {
   if (lines.length === 0) return;
   const existing = await readContextFile(filePath);
-  const newContent = existing.trimEnd() + "\n" + lines.map((l) => `- ${l}`).join("\n") + "\n";
+  const seen = new Set(
+    existing
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("- "))
+      .map((l) => l.slice(2).trim())
+  );
+  const fresh = lines.filter((l) => !seen.has(l.trim()));
+  if (fresh.length === 0) return;
+  const newContent = existing.trimEnd() + "\n" + fresh.map((l) => `- ${l}`).join("\n") + "\n";
   await writeContextFile(filePath, newContent);
 }
 

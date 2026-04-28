@@ -12,17 +12,23 @@ async function getAvailableDomains(): Promise<string[]> {
   return files.filter((f) => f.endsWith(".md")).map((f) => f.replace(".md", ""));
 }
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function keywordMatch(
   message: string,
   domains: string[],
   keywordMap: Record<string, string[]>
 ): string[] {
-  const lower = message.toLowerCase();
   const matched: string[] = [];
 
   for (const domain of domains) {
     const keywords = keywordMap[domain] ?? [domain];
-    const hit = keywords.some((kw) => lower.includes(kw));
+    const hit = keywords.some((kw) => {
+      const pattern = new RegExp(`\\b${escapeRegExp(kw)}\\b`, "i");
+      return pattern.test(message);
+    });
     if (hit) matched.push(domain);
   }
 
@@ -50,11 +56,17 @@ Rules:
 
 Message: "${message}"`;
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 64,
-    messages: [{ role: "user", content: prompt }],
-  });
+  let response;
+  try {
+    response = await client.messages.create({
+      model,
+      max_tokens: 64,
+      messages: [{ role: "user", content: prompt }],
+    });
+  } catch (err) {
+    console.error("[ctx-flow] Haiku classifier request failed:", err);
+    return [];
+  }
 
   const text = response.content[0].type === "text" ? response.content[0].text.trim() : "[]";
 
@@ -64,7 +76,7 @@ Message: "${message}"`;
       return parsed.filter((d): d is string => typeof d === "string" && domains.includes(d));
     }
   } catch {
-    // Haiku returned malformed JSON — safe to ignore
+    console.error("[ctx-flow] Haiku classifier returned non-JSON response:", text);
   }
 
   return [];
@@ -77,7 +89,7 @@ export interface RouterResult {
 
 /**
  * Route a message to relevant domain(s).
- * Tier 1: keyword match (free, instant)
+ * Tier 1: keyword match (free, instant, word-boundary aware)
  * Tier 2: Claude Haiku (only when keywords produce no match)
  */
 export async function routeIntent(message: string): Promise<RouterResult> {

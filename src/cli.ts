@@ -1,7 +1,7 @@
 import { mkdir, writeFile, readFile } from "fs/promises";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const TEMPLATES: Record<string, string> = {
   "goals.md": "# Project Goals\n\n- \n",
@@ -96,4 +96,15 @@ export async function run(argv: string[]): Promise<void> {
   console.error(`Unknown command: ${cmd}\n`);
   console.error(helpText(await readPackageVersion()));
   process.exit(1);
+}
+
+// Auto-run when invoked directly (e.g. `node dist/cli.js`). The bin shim
+// imports run() and calls it itself, so this only fires for direct invocation.
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  run(process.argv.slice(2)).catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }

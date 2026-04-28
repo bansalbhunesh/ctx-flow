@@ -19,13 +19,20 @@ async function sessionFilePath(): Promise<string> {
   return join(cfg.contextDir, ".session.json");
 }
 
+function emptySession(): SessionState {
+  return { turnCount: 0, totalTokensUsed: 0, summaryExists: false, lastSummary: null };
+}
+
 async function loadSession(): Promise<SessionState> {
   const path = await sessionFilePath();
-  if (!existsSync(path)) {
-    return { turnCount: 0, totalTokensUsed: 0, summaryExists: false, lastSummary: null };
+  if (!existsSync(path)) return emptySession();
+  try {
+    const raw = await readFile(path, "utf-8");
+    return JSON.parse(raw) as SessionState;
+  } catch (err) {
+    console.error(`[ctx-flow] could not read session at ${path}, starting fresh:`, err);
+    return emptySession();
   }
-  const raw = await readFile(path, "utf-8");
-  return JSON.parse(raw) as SessionState;
 }
 
 async function saveSession(state: SessionState): Promise<void> {
@@ -119,14 +126,24 @@ export async function handleUpdate(payload: UpdatePayload): Promise<string> {
 
 export async function handleReset(): Promise<string> {
   turnBuffer.length = 0;
-  const fresh: SessionState = {
-    turnCount: 0,
-    totalTokensUsed: 0,
-    summaryExists: false,
-    lastSummary: null,
-  };
-  await saveSession(fresh);
+  await saveSession(emptySession());
   return "Session reset. Context files preserved.";
+}
+
+function warnIfContextDirLooksWrong(dir: string): void {
+  if (!existsSync(dir)) {
+    console.error(
+      `[ctx-flow] contextDir ${dir} does not exist. Run \`ctx-flow init\` to scaffold one.`
+    );
+    return;
+  }
+  const hasGoals = existsSync(join(dir, "goals.md"));
+  const hasDomains = existsSync(join(dir, "domains"));
+  if (!hasGoals && !hasDomains) {
+    console.error(
+      `[ctx-flow] contextDir ${dir} has no goals.md or domains/ — context injection will be empty.`
+    );
+  }
 }
 
 export function createServer(version = "1.1.0"): Server {
@@ -234,6 +251,8 @@ export function createServer(version = "1.1.0"): Server {
 }
 
 export async function startServer(): Promise<void> {
+  const cfg = await loadConfig();
+  warnIfContextDirLooksWrong(cfg.contextDir);
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);

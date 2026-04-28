@@ -37,6 +37,14 @@ describe("writeFact", () => {
     expect(content).toContain("- fact one");
     expect(content).toContain("- fact two");
   });
+
+  it("deduplicates against existing bullets — same fact written twice appears once", async () => {
+    await writeFact("auth", "JWT expiry is 1h");
+    await writeFact("auth", "JWT expiry is 1h");
+    const content = await readFile(join(TMP, "domains", "auth.md"), "utf-8");
+    const occurrences = content.split("- JWT expiry is 1h").length - 1;
+    expect(occurrences).toBe(1);
+  });
 });
 
 describe("extractAndUpdate", () => {

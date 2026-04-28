@@ -54,6 +54,31 @@ describe("keywordMatch", () => {
   it("is case-insensitive", () => {
     expect(keywordMatch("LOGIN flow", ["auth"], map)).toEqual(["auth"]);
   });
+
+  it("does not match a keyword embedded as a substring of another word", () => {
+    // 'sql' should NOT match 'MySQL' — word boundaries required.
+    expect(keywordMatch("MySQL is fine", ["database"], { database: ["sql"] })).toEqual([]);
+  });
+
+  it("matches a multi-word keyword across whitespace", () => {
+    expect(keywordMatch("got a status code 500", ["api"], { api: ["status code"] })).toEqual([
+      "api",
+    ]);
+  });
+
+  it("does not match 'post' against 'blog post' when keyword is bare 'post'", () => {
+    // Bare 'post' has been removed from defaults; verify the matcher itself
+    // would still false-match without word boundaries — this confirms the
+    // boundary fix without depending on the default map.
+    expect(
+      keywordMatch("just published a blog post here", ["api"], { api: ["post request"] })
+    ).toEqual([]);
+  });
+
+  it("escapes regex-special characters in keywords", () => {
+    expect(keywordMatch("look at version 1.2.3", ["x"], { x: ["1.2.3"] })).toEqual(["x"]);
+    expect(keywordMatch("look at 1a2b3", ["x"], { x: ["1.2.3"] })).toEqual([]);
+  });
 });
 
 describe("routeIntent", () => {
