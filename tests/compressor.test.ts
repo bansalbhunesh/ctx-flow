@@ -1,16 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { compress, renderSummary } from "../src/summarizer/compressor.js";
 import { resetConfigForTests } from "../src/config.js";
 import type { StructuredSummary, Turn } from "../src/types.js";
 
 const ORIGINAL_KEY = process.env.ANTHROPIC_API_KEY;
+const { create } = vi.hoisted(() => ({ create: vi.fn() }));
+vi.mock("@anthropic-ai/sdk", () => ({
+  default: class {
+    messages = { create };
+  },
+}));
 
 beforeEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
+  create.mockReset();
   resetConfigForTests();
 });
 
 afterEach(() => {
+  delete process.env.ANTHROPIC_API_KEY;
   if (ORIGINAL_KEY) process.env.ANTHROPIC_API_KEY = ORIGINAL_KEY;
   resetConfigForTests();
 });
@@ -22,18 +30,17 @@ describe("compress", () => {
     expect(result).toBeNull();
   });
 
-  it("produces a fallback summary when forced and no API key is available", async () => {
+  it("preserves original history by skipping compression without an API key", async () => {
     const turns: Turn[] = [
       { role: "user", content: "we use postgres" },
       { role: "assistant", content: "noted" },
     ];
     const result = await compress(turns, null, 5, true);
-    expect(result).not.toBeNull();
-    expect(result!.summary.compressedAt).toBe(5);
-    expect(result!.summary.facts.length).toBeGreaterThan(0);
+    expect(result).toBeNull();
+    expect(create).not.toHaveBeenCalled();
   });
 
-  it("merges existing summary fields into the fallback summary", async () => {
+  it("does not replace an existing summary with a placeholder", async () => {
     const existing: StructuredSummary = {
       goals: ["ship v2"],
       facts: ["we use postgres"],
@@ -44,10 +51,44 @@ describe("compress", () => {
     };
     const turns: Turn[] = [{ role: "user", content: "x" }];
     const result = await compress(turns, existing, 6, true);
-    expect(result!.summary.goals).toEqual(["ship v2"]);
-    expect(result!.summary.decisions).toEqual(["go with REST"]);
-    expect(result!.summary.constraints).toEqual(["sub-100ms"]);
-    expect(result!.summary.compressedAt).toBe(6);
+    expect(result).toBeNull();
+    expect(existing.facts).toEqual(["we use postgres"]);
+  });
+
+  it.each(["not JSON", "null", "{}", '{"facts":"wrong type"}'])(
+    "retains history on malformed model output %s",
+    async (raw) => {
+      process.env.ANTHROPIC_API_KEY = "test-only";
+      create.mockResolvedValue({ content: [{ type: "text", text: raw }] });
+      expect(await compress([{ role: "user", content: "retain this" }], null, 1, true)).toBeNull();
+    }
+  );
+
+  it("retains history if the API is unavailable", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-only";
+    create.mockRejectedValue(new Error("offline"));
+    expect(await compress([{ role: "user", content: "retain this" }], null, 1, true)).toBeNull();
+  });
+
+  it("accepts a valid summary and supplies the existing one for incremental compression", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-only";
+    const previous: StructuredSummary = {
+      goals: ["ship v2"],
+      facts: ["Postgres"],
+      decisions: [],
+      constraints: [],
+      openQuestions: [],
+      compressedAt: 1,
+    };
+    create.mockResolvedValue({
+      content: [
+        { type: "text", text: JSON.stringify({ ...previous, facts: ["Postgres", "Redis"] }) },
+      ],
+    });
+    const result = await compress([{ role: "user", content: "Redis cache" }], previous, 2, true);
+    expect(result!.summary.facts).toEqual(["Postgres", "Redis"]);
+    expect(result!.summary.compressedAt).toBe(2);
+    expect(create.mock.calls[0][0].messages[0].content).toContain("Postgres");
   });
 
   it("respects a custom token threshold from config", async () => {

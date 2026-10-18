@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add a portable ctx-flow skill with local Markdown and optional MCP workflows.
+- Fix Claude Code project registration and document source installation.
+- Validate domains, model output, configuration, session data, and MCP inputs.
+- Retain and inject pending conversation turns, including across server restarts and failed compression.
+- Serialize mutations within one process and replace session files atomically.
+- Extend configured keywords without removing built-in keywords.
+- Update vulnerable dependencies and verify CI on Windows and Linux.
+- Replace unsupported savings, pricing, and automatic-invocation claims with documented limits.
+
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

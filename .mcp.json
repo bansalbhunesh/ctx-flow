@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "ctx-flow": {
+      "type": "stdio",
       "command": "node",
-      "args": ["dist/index.js"],
-      "cwd": "${workspaceFolder}"
+      "args": ["bin/ctx-flow.js", "mcp"]
     }
   }
 }

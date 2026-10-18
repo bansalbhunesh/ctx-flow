@@ -1,5 +1,6 @@
 .github/
 .claude/
+.mcp.json
 tests/
 src/
 node_modules/
