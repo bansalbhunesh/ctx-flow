@@ -1,6 +1,8 @@
 # ctx-flow
 
-Intent-aware context injection plugin for Claude Code. Reduces token usage by 60–98% on long sessions while improving response accuracy by loading only the context that matters for each message.
+Project memory and selective context loading for coding agents. The optional MCP server routes requests to relevant Markdown notes and can use Claude Haiku to extract facts and summarize stored conversation history. A portable skill is available in `skills/ctx-flow/`.
+
+The skill works with local file tools. The MCP server is a separate integration; neither automatically replaces or compacts the host agent's conversation.
 
 ## How it works
 
@@ -22,7 +24,7 @@ flowchart TD
 
     subgraph MEMORY["Session Memory"]
         G --> H{Tokens > 4000?}
-        H -->|No| I[Last N raw turns]
+        H -->|No| I[Pending raw turns]
         H -->|Yes| J[Structured summary\nHaiku compression]
         I --> K
         J --> K
@@ -46,38 +48,35 @@ flowchart TD
     style L fill:#0f172a,stroke:#6366f1,color:#e2e8f0
 ```
 
-## Token savings
+## Skill installation
 
-| Session length | Without ctx-flow | With ctx-flow | Saved |
-|----------------|-----------------|---------------|-------|
-| 20 turns       | ~8,000 tokens   | ~1,200 tokens | 85%   |
-| 50 turns       | ~20,000 tokens  | ~1,800 tokens | 91%   |
-| Domain task    | ~6,000 tokens   | ~800 tokens   | 87%   |
+Install `skills/ctx-flow/` using your agent's skill installer, or copy that directory to the agent's skills location. It contains `SKILL.md` and a reference for the optional MCP server. For a marketplace ZIP, zip the **contents** of that directory so `SKILL.md` is at the archive root. Keep the included MIT license.
 
-## Setup
+The skill can maintain and selectively read project context without an API key or Node.js. It does not install the server or register hooks.
 
-### 1. Install
+## Token usage
 
-From npm (recommended):
+Selective context loading and successful summarization can reduce the context supplied by an integration that uses them. There is no reproducible benchmark in this repository establishing a fixed savings percentage or an accuracy improvement. Count the host's retained history, injected notes, tool output, and helper API calls when measuring total usage.
 
-```bash
-npm install -g ctx-flow
-```
+## Setup: optional MCP server
 
-Or from source:
+### 1. Install from source
+
+Use Node.js 20.19+ or a supported newer LTS. As of October 18, 2026, `ctx-flow` is not available from the public npm registry; the previous `npm install -g ctx-flow` instruction returns 404.
 
 ```bash
 git clone https://github.com/bansalbhunesh/ctx-flow.git
 cd ctx-flow
-npm install
+npm ci
 npm run build
+node bin/ctx-flow.js --help
 ```
 
 ### 2. Scaffold the context directory in your project
 
 ```bash
 cd /path/to/your/project
-ctx-flow init
+node /absolute/path/to/ctx-flow/bin/ctx-flow.js init .
 ```
 
 This creates `context/` with starter `goals.md`, `constraints.md`, `decisions.md`, and `domains/{auth,api,ui,database}.md` files.
@@ -88,38 +87,21 @@ This creates `context/` with starter `goals.md`, `constraints.md`, `decisions.md
 export ANTHROPIC_API_KEY=your_key_here
 ```
 
-> Without a key the plugin still works — it uses keyword routing and a minimal fallback summary. Haiku-powered extraction and summarization require the key.
+> The key is optional. Without it, keyword routing, file access, and direct fact writing work locally. History stays uncompressed. On Windows PowerShell, set an existing key through your secure environment configuration; do not commit it to this repository.
 
 ### 4. Register with Claude Code
 
-Add to your project's `.claude/settings.json`:
+Run from the project whose context you want to manage:
 
-```json
-{
-  "mcpServers": {
-    "ctx-flow": {
-      "command": "ctx-flow",
-      "args": ["mcp"]
-    }
-  }
-}
+```bash
+claude mcp add --scope project --transport stdio ctx-flow -- node /absolute/path/to/ctx-flow/bin/ctx-flow.js mcp
 ```
 
-If you installed from source, point at the binary instead:
+Quote paths containing spaces. Project registration is stored in `.mcp.json`, not `.claude/settings.json`. The `.mcp.json` in this source repository starts its built server through `bin/ctx-flow.js mcp`. Calling `node dist/index.js` only imports the module and does not start the server.
 
-```json
-{
-  "mcpServers": {
-    "ctx-flow": {
-      "command": "node",
-      "args": ["bin/ctx-flow.js", "mcp"],
-      "cwd": "/absolute/path/to/ctx-flow"
-    }
-  }
-}
-```
+For another MCP client, use `node` as the command and the absolute binary path plus `mcp` as its arguments. Set `CTX_FLOW_CONTEXT_DIR` to the absolute path of the target project's `context` directory if the client starts the process elsewhere. Otherwise the default uses `CLAUDE_PROJECT_DIR` when available, then the process working directory.
 
-Then restart Claude Code.
+Verify that the four `ctx_*` tools are visible in your client. Tools run when the host calls them; registration alone does not install before/after-prompt hooks.
 
 ## CLI
 
@@ -149,7 +131,7 @@ Drop a `ctx-flow.config.json` next to your `context/` directory to override defa
 }
 ```
 
-All fields are optional. `keywordMap` is merged with the built-in defaults — list a domain there to extend it.
+All fields are optional. Relative `contextDir` values are resolved from the selected config file. `keywordMap` extends each domain's built-in keywords. Invalid config shapes fall back to defaults with a diagnostic on stderr.
 
 Environment overrides:
 - `CTX_FLOW_CONFIG` — path to a config file (default: `./ctx-flow.config.json`)
@@ -172,7 +154,7 @@ context/
     └── database.md   # injected when message is about the DB
 ```
 
-Add new domain files freely — the router picks them up automatically.
+Add domain files using names of 1–64 letters, digits, underscores, or hyphens, starting with a letter or digit. Reserved Windows device names are rejected. The router discovers regular Markdown files; symlink and junction redirects below the context root are rejected.
 
 **Example `goals.md`:**
 
@@ -197,13 +179,13 @@ Add new domain files freely — the router picks them up automatically.
 
 ## MCP tools
 
-Claude Code calls these automatically once registered:
+Suggested orchestration for a client that explicitly calls these tools:
 
 | Tool | When to call | What it does |
 |------|-------------|--------------|
-| `ctx_inject` | Before every prompt | Returns relevant context to prepend |
-| `ctx_update` | After every response | Updates session, compresses if needed, extracts new facts |
-| `ctx_reset` | Start of new task | Clears session state, keeps context files |
+| `ctx_inject` | Before a request needing project memory | Returns core notes, relevant domain notes, summary, and pending turns |
+| `ctx_update` | After a turn you want stored | Persists the turn, then optionally extracts facts and compresses history |
+| `ctx_reset` | When a conversation reset is requested | Clears stored turns and summary, keeps context files |
 | `ctx_write_fact` | When user states a new fact | Directly appends to a domain file |
 
 ### Example usage in your own code
@@ -214,7 +196,7 @@ import Anthropic from "@anthropic-ai/sdk";
 const client = new Anthropic();
 
 // 1. Get context before sending to Claude
-const injectResult = await mcpClient.callTool("ctx_inject", { message: userMessage });
+const injectResult = await mcpClient.callTool({ name: "ctx_inject", arguments: { message: userMessage } });
 const context = JSON.parse(injectResult.content[0].text).context;
 
 // 2. Build prompt with injected context
@@ -226,10 +208,13 @@ const response = await client.messages.create({
 });
 
 // 3. Update session after response
-await mcpClient.callTool("ctx_update", {
-  message: userMessage,
-  response: response.content[0].text,
-  detectedDomains: ["auth"],
+await mcpClient.callTool({
+  name: "ctx_update",
+  arguments: {
+    message: userMessage,
+    response: response.content.filter((block) => block.type === "text").map((block) => block.text).join("\n"),
+    detectedDomains: ["auth"],
+  },
 });
 ```
 
@@ -252,19 +237,13 @@ const KEYWORD_MAP = {
 
 **Tier 2 — Haiku fallback (fires only on keyword miss)**
 
-Sends the message to `claude-haiku-4-5` to classify intent. Costs ~$0.000025 per call.
+Sends the message to the configured Haiku model to classify intent. API costs depend on model pricing and the input/output tokens.
 
-To extend the keyword map, edit `src/router/intent-router.ts`.
+Extend the keyword map in `ctx-flow.config.json`.
 
 ## Summarization
 
-When accumulated tokens exceed 4,000, the compressor fires automatically:
-
-```
-20 raw turns  →  Haiku  →  structured summary
-(1,880 tokens)            (31 tokens)
-                           98% reduction
-```
+When pending history reaches the configured threshold (4,000 estimated tokens by default), ctx-flow attempts compression if an API key is available. Pending turns are persisted and included by `ctx_inject` before compression. Without a key, on API errors, or on malformed summary output, the original turns remain available.
 
 Summary shape:
 
@@ -278,7 +257,13 @@ Summary shape:
 }
 ```
 
-Summaries are **incremental** — each compression merges into the previous one so nothing is lost across multiple compression cycles.
+The previous summary is supplied to each compression request. Model summaries are lossy and should be checked for important omissions; permanent goals, constraints, and decisions belong in the core files.
+
+## Privacy and session limits
+
+`ctx_update` stores raw pending turns and summaries in `context/.session.json`. Exclude that file from version control in every target project, and avoid storing secrets. When an API key is enabled, classification sends the user message to Anthropic, extraction sends the turn and selected notes, and compression sends pending turns and the previous summary.
+
+Without successful compression, stored history and injected context can grow. `ctx_reset` clears stored conversation history while preserving Markdown notes. Mutations are serialized within one server process. Separate processes or independent sessions should use separate context directories; cross-process writes are not coordinated. This is a local stdio tool, not a filesystem sandbox against concurrent hostile local processes.
 
 ## Project structure
 
@@ -298,8 +283,8 @@ ctx-flow/
 │   ├── constraints.md
 │   ├── decisions.md
 │   └── domains/
-├── .claude/
-│   └── settings.json               # MCP registration for Claude Code
+├── skills/ctx-flow/                # portable SKILL.md and MCP reference
+├── .mcp.json                       # source-checkout MCP registration
 ├── dist/                           # compiled output (git-ignored)
 ├── package.json
 └── tsconfig.json

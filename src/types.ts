@@ -22,6 +22,7 @@ export interface SessionState {
   totalTokensUsed: number;
   summaryExists: boolean;
   lastSummary: StructuredSummary | null;
+  pendingTurns: Turn[];
 }
 
 export interface StructuredSummary {

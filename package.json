@@ -1,7 +1,7 @@
 {
   "name": "ctx-flow",
   "version": "1.2.0",
-  "description": "Intent-aware context injection MCP plugin for Claude Code. Reduces token usage by 60-98% on long sessions.",
+  "description": "Project memory, selective context loading, and optional conversation summarization for coding agents.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,7 +15,8 @@
     "ctx-flow.config.example.json",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "skills"
   ],
   "scripts": {
     "build": "tsc",
@@ -52,16 +53,16 @@
     "url": "https://github.com/bansalbhunesh/ctx-flow/issues"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.19.0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",
-    "@modelcontextprotocol/sdk": "^1.10.2"
+    "@modelcontextprotocol/sdk": "^1.32.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "prettier": "^3.3.0",
     "typescript": "^5.4.5",
-    "vitest": "^2.0.0"
+    "vitest": "^4.1.12"
   }
 }

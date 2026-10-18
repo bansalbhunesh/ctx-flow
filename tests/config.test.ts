@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { writeFile, rm, mkdir } from "fs/promises";
-import { join } from "path";
+import { join, resolve } from "path";
 import { tmpdir } from "os";
 import { loadConfig, resetConfigForTests } from "../src/config.js";
 
@@ -56,7 +56,7 @@ describe("loadConfig", () => {
     resetConfigForTests();
 
     const cfg = await loadConfig();
-    expect(cfg.contextDir).toBe("/tmp/from-env");
+    expect(cfg.contextDir).toBe(resolve("/tmp/from-env"));
   });
 
   it("returns the same cached object on repeated calls", async () => {
@@ -64,6 +64,41 @@ describe("loadConfig", () => {
     const b = await loadConfig();
     expect(a).toBe(b);
   });
+
+  it("extends existing domain keywords without removing defaults", async () => {
+    const path = join(TMP, "keywords.json");
+    await writeFile(path, JSON.stringify({ keywordMap: { auth: ["passkey"] } }));
+    process.env.CTX_FLOW_CONFIG = path;
+    const cfg = await loadConfig();
+    expect(cfg.keywordMap.auth).toContain("login");
+    expect(cfg.keywordMap.auth).toContain("passkey");
+  });
+
+  it("accepts domain names that also occur on Object.prototype", async () => {
+    const path = join(TMP, "domains.json");
+    await writeFile(path, JSON.stringify({ keywordMap: { constructor: ["class"] } }));
+    process.env.CTX_FLOW_CONFIG = path;
+    expect((await loadConfig()).keywordMap.constructor).toEqual(["class"]);
+  });
+
+  it("resolves contextDir relative to the selected config file", async () => {
+    const path = join(TMP, "relative.json");
+    await writeFile(path, JSON.stringify({ contextDir: "./notes" }));
+    process.env.CTX_FLOW_CONFIG = path;
+    expect((await loadConfig()).contextDir).toBe(join(TMP, "notes"));
+  });
+
+  it.each([null, [], { tokenThreshold: -1 }, { keywordMap: { auth: "login" } }])(
+    "ignores invalid config shape %j",
+    async (value) => {
+      const path = join(TMP, "invalid.json");
+      await writeFile(path, JSON.stringify(value));
+      process.env.CTX_FLOW_CONFIG = path;
+      const cfg = await loadConfig();
+      expect(cfg.tokenThreshold).toBe(4000);
+      expect(cfg.keywordMap.auth).toContain("login");
+    }
+  );
 
   it("falls back to defaults when the config file is malformed JSON", async () => {
     const configPath = join(TMP, "bad.json");

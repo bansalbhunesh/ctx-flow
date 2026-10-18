@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { StructuredSummary, Turn } from "../types.js";
 import { loadConfig } from "../config.js";
+import { isSummary } from "../validation.js";
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
@@ -61,55 +62,37 @@ export async function compress(
     return null;
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    const fallback: StructuredSummary = {
-      goals: existing?.goals ?? [],
-      facts: [`${turns.length} turns compressed at turn ${turnNumber}`],
-      decisions: existing?.decisions ?? [],
-      constraints: existing?.constraints ?? [],
-      openQuestions: existing?.openQuestions ?? [],
-      compressedAt: turnNumber,
-    };
-    return {
-      summary: fallback,
-      tokensBefore,
-      tokensAfter: estimateTokens(JSON.stringify(fallback)),
-      savedTokens: tokensBefore - estimateTokens(JSON.stringify(fallback)),
-    };
-  }
+  // Returning null keeps the original turns. A placeholder is not a summary.
+  if (!process.env.ANTHROPIC_API_KEY) return null;
 
   const client = new Anthropic();
 
-  const response = await client.messages.create({
-    model: cfg.haikuModel,
-    max_tokens: 512,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: buildUserPrompt(turns, existing) }],
-  });
-
-  const raw = response.content[0].type === "text" ? response.content[0].text.trim() : "{}";
-
-  let parsed: Omit<StructuredSummary, "compressedAt">;
+  let response;
   try {
-    parsed = JSON.parse(raw);
+    response = await client.messages.create({
+      model: cfg.haikuModel,
+      max_tokens: 512,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: buildUserPrompt(turns, existing) }],
+    });
   } catch {
-    parsed = {
-      goals: existing?.goals ?? [],
-      facts: [...(existing?.facts ?? []), `Turn ${turnNumber}: parse error on summary`],
-      decisions: existing?.decisions ?? [],
-      constraints: existing?.constraints ?? [],
-      openQuestions: existing?.openQuestions ?? [],
-    };
+    console.error("[ctx-flow] compression unavailable; retaining original history");
+    return null;
   }
 
-  const summary: StructuredSummary = {
-    goals: parsed.goals ?? [],
-    facts: parsed.facts ?? [],
-    decisions: parsed.decisions ?? [],
-    constraints: parsed.constraints ?? [],
-    openQuestions: parsed.openQuestions ?? [],
-    compressedAt: turnNumber,
-  };
+  const first = response.content[0];
+  const raw = first?.type === "text" ? first.text.trim() : "{}";
+
+  let summary: StructuredSummary;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const candidate = { ...parsed, compressedAt: turnNumber };
+    if (!isSummary(candidate)) return null;
+    summary = candidate;
+  } catch {
+    return null;
+  }
 
   const tokensAfter = estimateTokens(JSON.stringify(summary));
 

@@ -1,15 +1,18 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { readdir } from "fs/promises";
 import { existsSync } from "fs";
-import { join } from "path";
 import { loadConfig } from "../config.js";
+import { contextPath } from "../context/paths.js";
+import { isDomain } from "../validation.js";
 
 async function getAvailableDomains(): Promise<string[]> {
-  const cfg = await loadConfig();
-  const domainsDir = join(cfg.contextDir, "domains");
+  const domainsDir = await contextPath("domains");
   if (!existsSync(domainsDir)) return [];
-  const files = await readdir(domainsDir);
-  return files.filter((f) => f.endsWith(".md")).map((f) => f.replace(".md", ""));
+  const files = await readdir(domainsDir, { withFileTypes: true });
+  return files
+    .filter((f) => f.isFile() && f.name.endsWith(".md"))
+    .map((f) => f.name.slice(0, -3))
+    .filter(isDomain);
 }
 
 function escapeRegExp(s: string): string {
@@ -24,7 +27,7 @@ export function keywordMatch(
   const matched: string[] = [];
 
   for (const domain of domains) {
-    const keywords = keywordMap[domain] ?? [domain];
+    const keywords = Object.hasOwn(keywordMap, domain) ? keywordMap[domain] : [domain];
     const hit = keywords.some((kw) => {
       const pattern = new RegExp(`\\b${escapeRegExp(kw)}\\b`, "i");
       return pattern.test(message);
@@ -68,12 +71,15 @@ Message: "${message}"`;
     return [];
   }
 
-  const text = response.content[0].type === "text" ? response.content[0].text.trim() : "[]";
+  const first = response.content[0];
+  const text = first?.type === "text" ? first.text.trim() : "[]";
 
   try {
     const parsed = JSON.parse(text);
     if (Array.isArray(parsed)) {
-      return parsed.filter((d): d is string => typeof d === "string" && domains.includes(d));
+      return [
+        ...new Set(parsed.filter((d): d is string => typeof d === "string" && domains.includes(d))),
+      ].slice(0, 2);
     }
   } catch {
     console.error("[ctx-flow] Haiku classifier returned non-JSON response:", text);
